@@ -15,7 +15,8 @@ public class ServerTP {
     private Scanner scanner = new Scanner(System.in);
     private String serverAddress;
     private int serverPort;
-    private static String csvPath;
+    private static String credentialsPath;
+    private static String messagesPath;
 
     // Application serveur
     public static void main(String[] args) throws Exception {
@@ -26,7 +27,7 @@ public class ServerTP {
 
         try {
             while (true) {
-                new ClientHandler(listener.accept(), csvPath, clientNumber++).start();
+                new ClientHandler(listener.accept(), credentialsPath, messagesPath, clientNumber++).start();
             }
         } finally {
             listener.close();
@@ -38,7 +39,8 @@ public class ServerTP {
         setupPort();
         try {
             setupClientConnexion();
-            csvPathCreation();
+            credentialsPathCreation();
+            messagesPathCreation();
 
         } catch (IOException e) {
             System.err.println("An error occurred while setting up the server");
@@ -76,7 +78,7 @@ public class ServerTP {
         System.out.format("Le serveur roule sur %s:%d%n", serverAddress, serverPort);
     }
 
-    private void csvPathCreation() {
+    private void credentialsPathCreation() {
         File csvFile = new File("userCredentials.csv");
         try {
             if (!csvFile.exists()) {
@@ -85,9 +87,19 @@ public class ServerTP {
         } catch (IOException e) {
             System.err.println("une erreur c'est produite lors de la creation du fichier");
         }
+        credentialsPath = csvFile.getAbsolutePath();
+    }
 
-        csvPath = csvFile.getAbsolutePath();
-
+    private void messagesPathCreation() {
+        File messagesFile = new File("messages.txt");
+        try {
+            if (!messagesFile.exists()) {
+                messagesFile.createNewFile();
+            }
+        } catch (IOException e) {
+            System.err.println("une erreur c'est produite lors de la creation du fichier");
+        }
+        messagesPath = messagesFile.getAbsolutePath();
     }
 
     public static boolean isAddressValid(String address) {
