@@ -2,6 +2,7 @@ import javax.security.sasl.AuthenticationException;
 import javax.swing.*;
 import java.io.*;
 import java.net.Socket;
+import java.util.LinkedList;
 import java.util.Scanner;
 
 public class ClientHandler extends Thread { // Pour traiter la demande de chaque client sur un socket particulier
@@ -9,6 +10,7 @@ public class ClientHandler extends Thread { // Pour traiter la demande de chaque
     private String csvPath;
     private String messagePath;
     private int clientNumber;
+    private int recentMessagesSize = 15;
 
     public ClientHandler(Socket socket, String csvPath, String messagePath, int clientNumber) {
         this.socket = socket;
@@ -28,7 +30,10 @@ public class ClientHandler extends Thread { // Pour traiter la demande de chaque
                 if (!validateCreds(username, mdp)) {
                     throw new AuthenticationException();
                 }
-                //Messages a output
+                LinkedList<String> recentMessages = getRecentLines(messagePath);//Messages a output
+                for (String message : recentMessages) {
+                    out.writeUTF(message);
+                }
             }
             else {
                 //Creation du user
@@ -87,5 +92,23 @@ public class ClientHandler extends Thread { // Pour traiter la demande de chaque
         catch (IOException e) {
             System.out.println("Erreur de lecture du fichier");
         }
+    }
+
+    public LinkedList<String> getRecentLines(String filePath) {
+        LinkedList<String> recentLines = new LinkedList<>();
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                recentLines.add(line);
+
+                if (recentLines.size() > recentMessagesSize) {
+                    recentLines.removeFirst();
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Erreur de lecture du fichier " + e.getMessage());
+        }
+        return recentLines;
     }
 }
