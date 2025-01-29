@@ -42,18 +42,30 @@ public class ClientTP {
             out.writeUTF(mdp);
 
             String reponseAuth = in.readUTF();
-            if (!verifierReponse(reponseAuth)) {
+            if (verifierReponse(reponseAuth)) {
                 throw new AuthenticationException();
             }
             else {
-                String historiqueMessages = in.readUTF();
-                System.out.println(historiqueMessages);
+                int taille = in.read();
+                for (int i = 0; i < taille ; i++) {
+                    String historiqueMessages = in.readUTF();
+                    System.out.println(historiqueMessages);
+                }
+
                 boolean msgValide;
                 do {
                     System.out.println("Veuillez écrire un message (Limite de 200 charactères)");
                     String message = sc.nextLine();
                     msgValide = validerMessage(message);
+                    out.writeUTF(message);
                 } while (!msgValide);
+                String message;
+                do {
+                    String lastMessage = in.readUTF();
+                    System.out.println(lastMessage);
+                    message = sc.nextLine();
+                    out.writeUTF(message + "\n");
+                } while (!(message.equals("Z")));
             }
 
             socket.close();

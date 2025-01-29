@@ -17,6 +17,7 @@ public class ServerTP {
     private int serverPort;
     private static String credentialsPath;
     private static String messagesPath;
+    private static File credentialsFile;
 
     // Application serveur
     public static void main(String[] args) throws Exception {
@@ -27,7 +28,7 @@ public class ServerTP {
 
         try {
             while (true) {
-                new ClientHandler(listener.accept(), credentialsPath, messagesPath, clientNumber++).start();
+                new ClientHandler(listener.accept(), credentialsPath, credentialsFile,messagesPath, clientNumber++).start();
             }
         } finally {
             listener.close();
@@ -88,6 +89,7 @@ public class ServerTP {
             System.err.println("une erreur c'est produite lors de la creation du fichier");
         }
         credentialsPath = csvFile.getAbsolutePath();
+        credentialsFile = csvFile;
     }
 
     private void messagesPathCreation() {

@@ -11,10 +11,12 @@ public class ClientHandler extends Thread { // Pour traiter la demande de chaque
     private String messagePath;
     private int clientNumber;
     private int recentMessagesSize = 15;
+    private File csvFile;
 
-    public ClientHandler(Socket socket, String csvPath, String messagePath, int clientNumber) {
+    public ClientHandler(Socket socket, String csvPath, File csvFile, String messagePath, int clientNumber) {
         this.socket = socket;
         this.csvPath = csvPath;
+        this.csvFile = csvFile;
         this.messagePath = messagePath;
         this.clientNumber = clientNumber;
         System.out.println("New connection with client#" + clientNumber + " at " + socket);
@@ -26,30 +28,31 @@ public class ClientHandler extends Thread { // Pour traiter la demande de chaque
             DataInputStream in = new DataInputStream(socket.getInputStream());
             String username = in.readUTF();
             String mdp = in.readUTF();
+            LinkedList<String> recentMessages = getRecentLines(messagePath);
             if(usernameExists(username)){
                 if (!validateCreds(username, mdp)) {
                     throw new AuthenticationException();
                 }
-                LinkedList<String> recentMessages = getRecentLines(messagePath);//Messages a output
+                out.writeUTF("success");
+                //Messages a output
+                out.write(recentMessages.size());
                 for (String message : recentMessages) {
                     out.writeUTF(message);
                 }
             }
             else {
                 //Creation du user
-                writeUser(username, mdp);
+                writeUser(username, mdp, csvFile);
+                out.writeUTF("success");
+                out.write(recentMessages.size());
+                for (String message : recentMessages) {
+                    out.writeUTF(message);
+                }
             }
         } catch (AuthenticationException e) {
             System.out.println("erreur mdp");
         } catch (IOException e){
             System.out.println("Error handling client# " + clientNumber + ": " + e);
-        } finally {
-            try {
-                socket.close();
-            } catch (IOException e) {
-                System.out.println("Couldn't close a socket, what's going on?");
-            }
-            System.out.println("Connection with client# " + clientNumber + " closed");
         }
     }
 
@@ -83,11 +86,11 @@ public class ClientHandler extends Thread { // Pour traiter la demande de chaque
         return false;
     }
 
-    public void writeUser(String username, String mdp) {
-        try(FileWriter writer = new FileWriter((csvPath))) {
+    public void writeUser(String username, String mdp, File csvFile) {
+        try (FileWriter fw = new FileWriter(csvFile, true)) {
             String entry = username+","+mdp;
-            writer.append(entry);
-            writer.append("\n");
+            fw.write(entry);
+            fw.write("\n");
         }
         catch (IOException e) {
             System.out.println("Erreur de lecture du fichier");
