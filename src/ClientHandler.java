@@ -1,114 +1,113 @@
-import javax.security.sasl.AuthenticationException;
-import javax.swing.*;
 import java.io.*;
-import java.net.Socket;
-import java.util.LinkedList;
-import java.util.Scanner;
+import java.net.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 
-public class ClientHandler extends Thread { // Pour traiter la demande de chaque client sur un socket particulier
+public class ClientHandler extends Thread {
     private Socket socket;
-    private String csvPath;
-    private String messagePath;
     private int clientNumber;
-    private int recentMessagesSize = 15;
+    private String username;
+    private static final int MAX_MESSAGE_LENGTH = 200;
 
-    public ClientHandler(Socket socket, String csvPath, String messagePath, int clientNumber) {
+    public ClientHandler(Socket socket, int clientNumber) {
         this.socket = socket;
-        this.csvPath = csvPath;
-        this.messagePath = messagePath;
         this.clientNumber = clientNumber;
-        System.out.println("New connection with client#" + clientNumber + " at " + socket);
+        System.out.println("Nouvelle connexion avec client#" + clientNumber + " à " + socket);
     }
 
-    public void run() { // Création de thread qui envoie un message à un client
+    public void run() {
         try {
-            DataOutputStream out = new DataOutputStream(socket.getOutputStream()); // Création de canal d'envoi
-            DataInputStream in = new DataInputStream(socket.getInputStream());
-            String username = in.readUTF();
-            String mdp = in.readUTF();
-            if(usernameExists(username)){
-                if (!validateCreds(username, mdp)) {
-                    throw new AuthenticationException();
-                }
-                LinkedList<String> recentMessages = getRecentLines(messagePath);//Messages a output
-                for (String message : recentMessages) {
-                    out.writeUTF(message);
+            DataInputStream in  = new DataInputStream(socket.getInputStream());
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            out.writeUTF("Entrez votre nom d'utilisateur:");
+            String receivedUsername = in.readUTF();
+            boolean authenticated = false;
+            for (int attempts = 0; attempts < 3; attempts++) {
+                out.writeUTF("Entrez votre mot de passe:");
+                String receivedPassword = in.readUTF();
+                if (checkAuthentication(receivedUsername, receivedPassword)) {
+                    authenticated = true;
+                    break;
+                } else {
+                    if (attempts < 2)
+                        out.writeUTF("Mot de passe incorrect. Réessayez.");
+                    else
+                        out.writeUTF("Erreur dans la saisie du mot de passe. Fin de la connexion.");
                 }
             }
-            else {
-                //Creation du user
-                writeUser(username, mdp);
+            if (!authenticated) {
+                return;
             }
-        } catch (AuthenticationException e) {
-            System.out.println("erreur mdp");
-        } catch (IOException e){
-            System.out.println("Error handling client# " + clientNumber + ": " + e);
+            this.username = receivedUsername;
+            out.writeUTF("Authentification réussie ! Bienvenue " + username);
+            out.writeUTF("Voici les derniers messages :");
+            for (String msg : ServerTP.getRecentMessages()) {
+                out.writeUTF(msg);
+            }
+            out.writeUTF("Vous pouvez maintenant envoyer vos messages (tapez 'exit' pour quitter).");
+            while (true) {
+                String clientMessage = in.readUTF();
+                if (clientMessage.equalsIgnoreCase("exit")) {
+                    out.writeUTF("Déconnexion...");
+                    break;
+                }
+                if (clientMessage.length() > MAX_MESSAGE_LENGTH) {
+                    out.writeUTF("Message trop long, maximum " + MAX_MESSAGE_LENGTH + " caractères autorisés.");
+                    continue;
+                }
+                String formattedMessage = formatMessage(clientMessage);
+                ServerTP.appendMessage(formattedMessage);
+                ServerTP.broadcast(formattedMessage);
+            }
+        } catch (IOException e) {
+            System.err.println("Erreur lors du traitement du client#" + clientNumber + ": " + e.getMessage());
         } finally {
             try {
                 socket.close();
             } catch (IOException e) {
-                System.out.println("Couldn't close a socket, what's going on?");
+                System.err.println("Impossible de fermer le socket: " + e.getMessage());
             }
-            System.out.println("Connection with client# " + clientNumber + " closed");
+            System.out.println("Connexion avec client#" + clientNumber + " fermée.");
         }
     }
 
-    public boolean usernameExists(String username) {
-        try(Scanner sc = new Scanner(new File(csvPath))) {
-            while (sc.hasNextLine()) {
-                String[] line = sc.nextLine().split(",");
-                if (line.length>0 && line[0].contains(username)) {
-                    return true;
+    private boolean checkAuthentication(String username, String password) {
+        File file = new File(ServerTP.CREDENTIALS_FILE);
+        try {
+            if (!file.exists()) {
+                file.createNewFile();
+            }
+            List<String> lines = java.nio.file.Files.readAllLines(file.toPath());
+            for (String line : lines) {
+                String[] parts = line.split(",");
+                if (parts.length >= 2 && parts[0].equals(username)) {
+                    return parts[1].equals(password);
                 }
             }
-
-        } catch (Exception e) {
-            System.out.println("Erreur de lecture du fichier");
-        }
-        return false;
-    }
-
-    public boolean validateCreds(String username, String password) {
-        try(Scanner sc = new Scanner(new File(csvPath))) {
-            while (sc.hasNextLine()) {
-                String[] line = sc.nextLine().split(",");
-                if (line.length>0 && line[0].contains(username) && line[1].contains(password)) {
-                    return true;
-                }
-            }
-
-        } catch (Exception e) {
-            System.out.println("Erreur de lecture du fichier");
-        }
-        return false;
-    }
-
-    public void writeUser(String username, String mdp) {
-        try(FileWriter writer = new FileWriter((csvPath))) {
-            String entry = username+","+mdp;
-            writer.append(entry);
-            writer.append("\n");
-        }
-        catch (IOException e) {
-            System.out.println("Erreur de lecture du fichier");
-        }
-    }
-
-    public LinkedList<String> getRecentLines(String filePath) {
-        LinkedList<String> recentLines = new LinkedList<>();
-
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                recentLines.add(line);
-
-                if (recentLines.size() > recentMessagesSize) {
-                    recentLines.removeFirst();
-                }
-            }
+            String entry = username + "," + password + System.lineSeparator();
+            java.nio.file.Files.write(file.toPath(), entry.getBytes(), java.nio.file.StandardOpenOption.APPEND);
+            return true;
         } catch (IOException e) {
-            System.err.println("Erreur de lecture du fichier " + e.getMessage());
+            System.err.println("Erreur lors de l'authentification : " + e.getMessage());
+            return false;
         }
-        return recentLines;
+    }
+
+    private String formatMessage(String message) {
+        String clientIP = socket.getInetAddress().getHostAddress();
+        int clientPort = socket.getPort();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd@HH:mm:ss");
+        String dateTime = LocalDateTime.now().format(formatter);
+        return String.format("[%s - %s:%d - %s]: %s", username, clientIP, clientPort, dateTime, message);
+    }
+
+    public void sendMessage(String message) {
+        try {
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            out.writeUTF(message);
+        } catch (IOException e) {
+            System.err.println("Erreur d'envoi au client#" + clientNumber + ": " + e.getMessage());
+        }
     }
 }

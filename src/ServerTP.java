@@ -1,117 +1,118 @@
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.UnknownHostException;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.net.Socket;
+import java.io.*;
+import java.net.*;
+import java.nio.file.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Scanner;
-import java.io.File;
-
 
 public class ServerTP {
+    public static final int MIN_PORT = 5000;
+    public static final int MAX_PORT = 5050;
+    public static final int MAX_RECENT_MESSAGES = 15;
+    public static final String MESSAGES_FILE = "messages.txt";
+    public static final String CREDENTIALS_FILE = "userCredentials.csv";
+    public static List<ClientHandler> clients = Collections.synchronizedList(new ArrayList<>());
     private static ServerSocket listener;
-    private Scanner scanner = new Scanner(System.in);
-    private String serverAddress;
-    private int serverPort;
-    private static String credentialsPath;
-    private static String messagesPath;
 
-    // Application serveur
     public static void main(String[] args) throws Exception {
+        Scanner scanner = new Scanner(System.in);
+        String serverAddress;
+        int serverPort = 0;
+        while (true) {
+            System.out.print("Entrez l'adresse IP du serveur: ");
+            serverAddress = scanner.nextLine();
+            if (isValidIPAddress(serverAddress)) {
+                break;
+            } else {
+                System.out.println("Adresse IP invalide. Veuillez entrer une adresse IP valide.");
+            }
+        }
+        while (true) {
+            System.out.print("Entrez le port d'écoute (entre " + MIN_PORT + " et " + MAX_PORT + "): ");
+            String portStr = scanner.nextLine();
+            try {
+                serverPort = Integer.parseInt(portStr);
+                if (isValidPort(serverPort)) {
+                    break;
+                } else {
+                    System.out.println("Port invalide. Veuillez entrer un port entre " + MIN_PORT + " et " + MAX_PORT + ".");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("Port invalide. Veuillez entrer un nombre.");
+            }
+        }
+        scanner.close();
+        listener = new ServerSocket();
+        listener.setReuseAddress(true);
+        InetAddress serverIP = InetAddress.getByName(serverAddress);
+        listener.bind(new InetSocketAddress(serverIP, serverPort));
+        System.out.format("Le serveur est lancé sur %s:%d%n", serverAddress, serverPort);
         int clientNumber = 0;
-
-        ServerTP server = new ServerTP();
-        server.setupServer();
-
         try {
             while (true) {
-                new ClientHandler(listener.accept(), credentialsPath, messagesPath, clientNumber++).start();
+                ClientHandler handler = new ClientHandler(listener.accept(), clientNumber++);
+                clients.add(handler);
+                handler.start();
             }
         } finally {
             listener.close();
         }
     }
 
-    private void setupServer() {
-        setupAddress();
-        setupPort();
+    public static boolean isValidIPAddress(String ip) {
+        String[] parts = ip.split("\\.");
+        if (parts.length != 4) return false;
         try {
-            setupClientConnexion();
-            credentialsPathCreation();
-            messagesPathCreation();
-
-        } catch (IOException e) {
-            System.err.println("An error occurred while setting up the server");
-        }
-
-    }
-
-    private void setupAddress() {
-        System.out.println("Entrez une adresse IP valide (ex: 127.0.0.1)");
-        String userInput = scanner.nextLine();
-        if (!isAddressValid(userInput)) {
-            System.out.println("L'adresse IP est invalide.");
-            setupAddress();
-        } else {
-            serverAddress = userInput;
-        }
-    }
-
-    private void setupPort() {
-        System.out.println("Entrez un port valide entre 5000 et 5050");
-        int userInput = scanner.nextInt();
-        if (!isPortValid(userInput)){
-            System.out.println("Le port est invalide.");
-            setupPort();
-        } else {
-            serverPort = userInput;
-        }
-    }
-
-    private void setupClientConnexion() throws IOException {
-        listener = new ServerSocket();
-        listener.setReuseAddress(true);
-        InetAddress serverIP = InetAddress.getByName(serverAddress);
-        listener.bind(new InetSocketAddress(serverIP, serverPort));
-        System.out.format("Le serveur roule sur %s:%d%n", serverAddress, serverPort);
-    }
-
-    private void credentialsPathCreation() {
-        File csvFile = new File("userCredentials.csv");
-        try {
-            if (!csvFile.exists()) {
-                csvFile.createNewFile();
+            for (String part : parts) {
+                int num = Integer.parseInt(part);
+                if (num < 0 || num > 255) return false;
             }
-        } catch (IOException e) {
-            System.err.println("une erreur c'est produite lors de la creation du fichier");
-        }
-        credentialsPath = csvFile.getAbsolutePath();
-    }
-
-    private void messagesPathCreation() {
-        File messagesFile = new File("messages.txt");
-        try {
-            if (!messagesFile.exists()) {
-                messagesFile.createNewFile();
-            }
-        } catch (IOException e) {
-            System.err.println("une erreur c'est produite lors de la creation du fichier");
-        }
-        messagesPath = messagesFile.getAbsolutePath();
-    }
-
-    public static boolean isAddressValid(String address) {
-        try {
-            InetAddress.getByName(address);
             return true;
-        } catch (UnknownHostException e) {
+        } catch (NumberFormatException e) {
             return false;
         }
     }
 
-    public static boolean isPortValid(int port) {
-        return 5000 <= port && port <= 5050;
+    public static boolean isValidPort(int port) {
+        return port >= MIN_PORT && port <= MAX_PORT;
+    }
+
+    public static void broadcast(String message) {
+        synchronized(clients) {
+            for (ClientHandler ch : clients) {
+                ch.sendMessage(message);
+            }
+        }
+    }
+
+    public static LinkedList<String> getRecentMessages() {
+        LinkedList<String> recentLines = new LinkedList<>();
+        File file = new File(MESSAGES_FILE);
+        if (!file.exists()) {
+            return recentLines;
+        }
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                recentLines.add(line);
+                if (recentLines.size() > MAX_RECENT_MESSAGES) {
+                    recentLines.removeFirst();
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Erreur de lecture du fichier " + e.getMessage());
+        }
+        return recentLines;
+    }
+
+    public static void appendMessage(String message) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(MESSAGES_FILE, true))) {
+            writer.write(message);
+            writer.newLine();
+        } catch (IOException e) {
+            System.err.println("Erreur lors de l'écriture du fichier: " + e.getMessage());
+        }
     }
 }
